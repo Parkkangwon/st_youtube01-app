@@ -1,4 +1,9 @@
 import streamlit as st
+import yaml
+import bcrypt
+from yaml.loader import SafeLoader
+import streamlit_authenticator as stauth
+from streamlit_extras.metric_cards import style_metric_cards
 
 # Set page configuration first
 st.set_page_config(
@@ -30,17 +35,27 @@ st.markdown("""
         border-radius: 10px;
         margin-bottom: 20px;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        transition: transform 0.2s;
+        transition: transform 0.2s, box-shadow 0.2s;
         background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        overflow: hidden;
+        position: relative;
+        cursor: pointer;
+    }
+    .video-card a {
+        text-decoration: none;
+        color: inherit;
     }
     .video-card:hover {
         transform: translateY(-5px);
-        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
     }
-    .video-thumbnail {
+    .video-card img {
         width: 100%;
         border-radius: 8px;
         margin-bottom: 10px;
+        aspect-ratio: 16/9;
+        object-fit: cover;
     }
     .video-title {
         font-weight: bold;
@@ -48,7 +63,18 @@ st.markdown("""
         margin: 5px 0;
         color: #0f1111;
     }
-    .channel-name {
+    .video-card h3 {
+        font-size: 16px;
+        margin: 8px 0;
+        line-height: 1.4;
+        height: 2.8em;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+    }
+    
+    .channel {
         color: #606060;
         font-size: 14px;
         margin: 3px 0;
@@ -56,9 +82,9 @@ st.markdown("""
     .stats {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 8px;
-        font-size: 12px;
+        gap: 6px;
+        margin-top: 10px;
+        font-size: 11px;
         color: #606060;
     }
     .stats span {
@@ -69,6 +95,10 @@ st.markdown("""
         padding: 3px 8px;
         border-radius: 12px;
         white-space: nowrap;
+        transition: background-color 0.2s;
+    }
+    .stats span:hover {
+        background: #e0e0e0;
     }
     .stButton>button {
         width: 100%;
@@ -343,9 +373,11 @@ def main():
         with cols[i % 3]:
             st.markdown(
                 f"""
-                <div class="video-card">
-                    <img src="{video['thumbnail']}" alt="{video['title']}">
-                    <h3>{video['title']}</h3>
+                <div class="video-card" onclick="window.open('{video['url']}', '_blank')">
+                    <a href="{video['url']}" target="_blank">
+                        <img src="{video['thumbnail']}" alt="{video['title']}">
+                        <h3>{video['title']}</h3>
+                    </a>
                     <p class="channel">{video['channel']}</p>
                     <div class="stats">
                         <span>👁️ {format_number(video['view_count'])}</span>
@@ -362,5 +394,118 @@ def main():
     # 하단 여백 추가
     st.markdown("<br><br>", unsafe_allow_html=True)
 
+# 인증 설정 로드
+def load_auth_config():
+    with open('.streamlit/config.yaml') as file:
+        config = yaml.load(file, Loader=SafeLoader)
+    return config
+
+# 인증자 생성
+def get_authenticator():
+    config = load_auth_config()
+    authenticator = stauth.Authenticate(
+        config['credentials'],
+        'youtube_app',
+        'auth',
+        cookie_expiry_days=30,
+        preauthorized=config.get('preauthorized', [])
+    )
+    return authenticator
+
+# 관리자 페이지
+def admin_page():
+    st.title("관리자 페이지")
+    st.write("관리자만 접근할 수 있는 페이지입니다.")
+    
+    # 사용자 관리 섹션
+    with st.expander("사용자 관리"):
+        st.subheader("사용자 목록")
+        config = load_auth_config()
+        users = config['credentials']['usernames']
+        
+        # 사용자 목록 표시
+        for username, user_info in users.items():
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col1:
+                st.write(f"**{user_info['name']}**")
+            with col2:
+                st.write(f"이메일: {user_info['email']}")
+            with col3:
+                if st.button(f"삭제 {username}", key=f"del_{username}"):
+                    if username != 'admin':  # 관리자 계정은 삭제 불가
+                        del users[username]
+                        with open('.streamlit/config.yaml', 'w') as file:
+                            yaml.dump(config, file, default_flow_style=False)
+                        st.success(f"{username} 사용자가 삭제되었습니다.")
+                        st.rerun()
+                    else:
+                        st.error("관리자 계정은 삭제할 수 없습니다.")
+        
+        # 새 사용자 추가
+        st.subheader("새 사용자 추가")
+        with st.form("add_user"):
+            new_username = st.text_input("사용자명")
+            new_name = st.text_input("이름")
+            new_email = st.text_input("이메일")
+            new_password = st.text_input("비밀번호", type="password")
+            new_role = st.selectbox("역할", ["user", "admin"])
+            
+            if st.form_submit_button("사용자 추가"):
+                if new_username and new_name and new_email and new_password:
+                    if new_username not in users:
+                        hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                        users[new_username] = {
+                            'email': new_email,
+                            'name': new_name,
+                            'password': hashed_password,
+                            'role': new_role
+                        }
+                        with open('.streamlit/config.yaml', 'w') as file:
+                            yaml.dump(config, file, default_flow_style=False)
+                        st.success(f"{new_username} 사용자가 추가되었습니다.")
+                        st.rerun()
+                    else:
+                        st.error("이미 존재하는 사용자명입니다.")
+                else:
+                    st.error("모든 필드를 입력해주세요.")
+
+# 메인 앱
 if __name__ == "__main__":
-    main()
+    # 인증자 초기화
+    authenticator = get_authenticator()
+    
+    # 로그인 상태 확인
+    if 'authentication_status' not in st.session_state:
+        st.session_state['authentication_status'] = None
+    
+    # 로그인 페이지
+    if not st.session_state.get('authentication_status'):
+        st.title("YouTube 인기 동영상 - 로그인")
+        
+        # 로그인 폼
+        name, authentication_status, username = authenticator.login('Login', 'main')
+        
+        if authentication_status == False:
+            st.error('아이디/비밀번호가 올바르지 않습니다.')
+        elif authentication_status == None:
+            st.warning('아이디와 비밀번호를 입력해주세요.')
+    
+    # 로그인 성공 시 메인 페이지 또는 관리자 페이지 표시
+    elif st.session_state['authentication_status']:
+        # 사이드바에 로그아웃 버튼 추가
+        authenticator.logout('로그아웃', 'sidebar')
+        
+        # 관리자 계정인 경우 관리자 페이지 링크 표시
+        config = load_auth_config()
+        user_role = config['credentials']['usernames'][st.session_state['username']]['role']
+        
+        if user_role == 'admin':
+            if st.sidebar.button("관리자 페이지"):
+                st.session_state['show_admin'] = not st.session_state.get('show_admin', False)
+            
+            if st.session_state.get('show_admin'):
+                admin_page()
+            else:
+                main()
+        else:
+            main()
