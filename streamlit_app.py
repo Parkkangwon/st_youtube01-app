@@ -396,7 +396,38 @@ def main():
 
 # 인증 설정 로드
 def load_auth_config():
-    with open('.streamlit/config.yaml') as file:
+    import os
+    # 현재 파일의 디렉토리 경로를 기반으로 config 파일 경로 생성
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(current_dir, '.streamlit', 'config.yaml')
+    
+    # 파일이 없으면 기본 설정으로 생성
+    if not os.path.exists(config_path):
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        default_config = {
+            'credentials': {
+                'usernames': {
+                    'admin': {
+                        'email': 'admin@example.com',
+                        'name': '관리자',
+                        'password': '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW',  # admin123
+                        'role': 'admin'
+                    },
+                    'user': {
+                        'email': 'user@example.com',
+                        'name': '일반사용자',
+                        'password': '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW',  # user123
+                        'role': 'user'
+                    }
+                }
+            },
+            'cookie': {'expiry_days': 30},
+            'preauthorized': []
+        }
+        with open(config_path, 'w') as file:
+            yaml.dump(default_config, file, default_flow_style=False)
+    
+    with open(config_path) as file:
         config = yaml.load(file, Loader=SafeLoader)
     return config
 
