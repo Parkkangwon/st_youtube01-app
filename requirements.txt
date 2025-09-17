@@ -1,1 +1,5 @@
-streamlit
+streamlit==1.32.0
+python-dotenv==1.0.0
+google-api-python-client==2.118.0
+pandas==2.1.4
+streamlit-card==0.1.2
